@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bash-guard-forge - shell script safety reviewer</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="mark">&#9632;</span>
+    <div>
+      <h1>bash-guard-forge</h1>
+      <p class="sub">Paste a shell script. Get a risk review, a plain-English read of what it does, and a safer patch. Everything runs locally.</p>
+    </div>
+  </div>
+  <div class="topmeta">
+    <span class="pill pill-ghost">91 rules</span>
+    <span class="pill pill-ghost">no API keys</span>
+    <span class="pill pill-ghost">offline</span>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="panel input-panel">
+    <div class="panel-head">
+      <h2>Script</h2>
+      <div class="samples">
+        {% for sid in sample_ids %}
+        <button class="chip" data-sample="{{ sid }}">{{ sid }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <textarea id="script" spellcheck="false" placeholder="#!/bin/bash&#10;rm -rf $DIR&#10;curl https://example.com/install.sh | bash"></textarea>
+
+    <div class="row">
+      <label class="field">
+        <span>Where does this run?</span>
+        <select id="env">
+          <option value="default">Unspecified</option>
+          <option value="ci">CI pipeline</option>
+          <option value="laptop">Laptop / workstation</option>
+          <option value="prod">Production server</option>
+          <option value="root">Running as root</option>
+          <option value="review">Code review / shared repo</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Shell</span>
+        <select id="shell">
+          <option value="bash">bash</option>
+          <option value="sh">sh (POSIX)</option>
+          <option value="zsh">zsh</option>
+        </select>
+      </label>
+    </div>
+
+    <label class="field">
+      <span>What is this script supposed to do? <em>(optional, but it sharpens the review)</em></span>
+      <input id="intent" type="text" placeholder="Nightly backup of the config directory">
+    </label>
+
+    <div class="actions">
+      <button id="run" class="btn btn-primary">Review script</button>
+      <button id="clear" class="btn">Clear</button>
+      <span id="status" class="status"></span>
+    </div>
+
+    <details class="rules">
+      <summary>What gets checked</summary>
+      <ul>
+        <li><b>Blast radius</b> - recursive deletes, device writes, rm -rf on system paths, dropped databases, force pushes, terraform destroy</li>
+        <li><b>Secret and trust</b> - curl piped into a shell, hard-coded tokens, TLS verification disabled, Docker socket mounted, world-writable secrets</li>
+        <li><b>Quoting safety</b> - unquoted expansions, unquoted command substitution, for-loops over ls, unquoted test operands</li>
+        <li><b>Portability</b> - missing shebang, bash syntax in a POSIX sh script, sed -i without a suffix, date -d, missing set flags</li>
+        <li><b>Failure handling</b> - unchecked cd, no cleanup trap, missing dependency checks, swallowed errors</li>
+      </ul>
+    </details>
+  </section>
+
+  <section class="panel result-panel">
+    <div id="empty" class="empty">
+      <h3>Nothing reviewed yet</h3>
+      <p>Paste a script on the left, or load one of the samples. You get a 0-100 risk score across five axes, a step-by-step read of what the script does, every risky line with a fix, and a patch for the mechanical problems.</p>
+    </div>
+
+    <div id="results" class="hidden">
+      <div class="verdict">
+        <div class="scorebox">
+          <div id="score" class="score">0</div>
+          <div class="scorelabel">out of 100</div>
+        </div>
+        <div class="verdictmain">
+          <span id="verdictPill" class="pill">-</span>
+          <p id="verdictNote" class="verdictnote"></p>
+          <div id="counts" class="counts"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Risk axes</h3>
+        <div id="axes" class="axes"></div>
+      </div>
+
+      <div class="card">
+        <h3>What this script does</h3>
+        <p class="hint">A plain-English read of the script, step by step, in the order it runs.</p>
+        <ol id="steps" class="steps"></ol>
+      </div>
+
+      <div class="card">
+        <h3>Blast radius</h3>
+        <div id="blast" class="blast"></div>
+      </div>
+
+      <div class="card">
+        <h3>Findings</h3>
+        <div id="filters" class="filters">
+          <button class="chip active" data-sev="all">all</button>
+          <button class="chip" data-sev="critical">critical</button>
+          <button class="chip" data-sev="high">high</button>
+          <button class="chip" data-sev="medium">medium</button>
+          <button class="chip" data-sev="low">low</button>
+        </div>
+        <div id="findings" class="findings"></div>
+      </div>
+
+      <div id="patchCard" class="card">
+        <h3>Safer patch</h3>
+        <p class="hint">Mechanical fixes only: quoting, permissions, portability, strict mode. Read it before you apply it.</p>
+        <pre id="patch" class="patch"></pre>
+        <div class="patchactions">
+          <button id="copyPatch" class="btn">Copy patch</button>
+          <a id="dlPatch" class="btn btn-ghost" download>Download .patch</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Save and export</h3>
+        <div class="stars" id="stars">
+          <span class="starlabel">How risky did this feel?</span>
+          <button class="star" data-rating="1">&#9733;</button>
+          <button class="star" data-rating="2">&#9733;</button>
+          <button class="star" data-rating="3">&#9733;</button>
+          <button class="star" data-rating="4">&#9733;</button>
+          <button class="star" data-rating="5">&#9733;</button>
+        </div>
+        <textarea id="notes" class="notes" rows="2" placeholder="Notes: what did you decide?"></textarea>
+        <div class="exports">
+          <a id="dlMd" class="btn btn-ghost" download>Markdown</a>
+          <a id="dlJson" class="btn btn-ghost" download>JSON</a>
+          <span id="saved" class="status"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<section class="panel history-panel">
+  <div class="panel-head">
+    <h2>Review history</h2>
+    <span class="hint">Stored locally in SQLite.</span>
+  </div>
+  <div id="history" class="history"></div>
+</section>
+
+<footer class="foot">
+  <span>bash-guard-forge - static analysis only. It reads the text you paste; it never runs your script.</span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
